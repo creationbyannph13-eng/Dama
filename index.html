@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Filipino Dama</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#fbf6ea;--fg:#2b2118;--light:#f1deb4;--dark:#8a5a34;--red:#c0392b;--blue:#1f4e79;--hl:#f2c94c}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1712;--fg:#f3e9d6;--light:#b99a6b;--dark:#5a3a22}}
+:root[data-theme="dark"]{--bg:#1c1712;--fg:#f3e9d6;--light:#b99a6b;--dark:#5a3a22}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;text-align:center;padding:12px}
+h1{font-size:1.3rem;margin:4px 0}
+#st{font-weight:600;min-height:1.5em;margin:6px 0}
+#bd{display:grid;grid-template-columns:repeat(8,1fr);width:min(94vw,480px);aspect-ratio:1;margin:8px auto;border:4px solid var(--dark);border-radius:6px;overflow:hidden}
+.s{display:flex;align-items:center;justify-content:center;position:relative}
+.l{background:var(--light)}.d{background:var(--dark)}
+.s.t::after{content:"";width:28%;height:28%;border-radius:50%;background:var(--hl);opacity:.9}
+.s.sel{box-shadow:inset 0 0 0 4px var(--hl)}
+.p{width:78%;height:78%;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:min(5vw,26px);box-shadow:0 2px 4px #0006,inset 0 0 0 3px #fff4}
+.r{background:var(--red)}.b{background:var(--blue)}
+button{font:inherit;padding:8px 18px;border-radius:8px;border:0;background:var(--dark);color:#fff;margin-top:6px}
+p.n{font-size:.8rem;opacity:.75;max-width:480px;margin:10px auto}
+</style></head><body>
+<h1>Filipino Dama</h1>
+<div id="lobby">
+<button onclick="create()">Create game</button>
+<div style="margin-top:10px"><input id="code" maxlength="4" placeholder="Code" style="font:inherit;padding:8px;width:80px;text-transform:uppercase;text-align:center;border-radius:8px;border:2px solid var(--dark)"> <button onclick="join()">Join</button></div>
+<p id="msg" class="n"></p></div>
+<div id="game" style="display:none"><div id="info" class="n"></div><div id="st"></div><div id="bd"></div>
+<button onclick="rematch()">New game</button></div>
+<p class="n">Red moves first. Captures are mandatory. Men move forward, capture in any direction. Reach the far row to become a Dama (king) that flies any distance.</p>
+<script>
+let B,turn,sel,chain,over,db,ref,unsub,me=null,code,st={};
+const ok=(r,c)=>r>=0&&r<8&&c>=0&&c<8,D=[[-1,-1],[-1,1],[1,-1],[1,1]];
+let pid;try{pid=localStorage.pid||(localStorage.pid=Math.random().toString(36).slice(2))}catch(e){pid=Math.random().toString(36).slice(2)}
+const $=i=>document.getElementById(i);
+function fresh(){const b=[];for(let r=0;r<8;r++)for(let c=0;c<8;c++)b.push((r+c)%2?(r<3?'b':r>4?'r':'.'):'.');return b.join('')}
+function load(d){B=Array.from({length:8},(_,r)=>Array.from({length:8},(_,c)=>{const x=d.b[r*8+c];return x==='.'?null:x}));
+turn=d.turn;over=d.over;chain=d.chain?{r:+d.chain[0],c:+d.chain[2]}:null}
+function pack(){return{...st,b:B.map(r=>r.map(x=>x||'.').join('')).join(''),turn,over,chain:chain?chain.r+','+chain.c:''}}
+const CFG={apiKey:"AIzaSyBNz0LTSinuZbyxx9aOvo_ClnabsgwZBJQ",authDomain:"filipino--dama.firebaseapp.com",databaseURL:"https://filipino--dama-default-rtdb.europe-west1.firebasedatabase.app",projectId:"filipino--dama",appId:"1:851804503601:web:fa0f43d6764092acf2df10"};
+function mk(p){const r=firebase.database().ref(p);return{set:d=>r.set(d),update:d=>r.update(d),
+get:async()=>{const s=await r.once('value');return{exists:s.exists(),data:()=>s.val()}},
+onSnapshot:cb=>r.on('value',s=>cb({exists:s.exists(),data:()=>s.val()}))}}
+async function conn(){if(db)return true;if(CFG.apiKey.startsWith('PASTE')){$('msg').textContent='Add your Firebase settings first (see steps).';return false}
+try{firebase.initializeApp(CFG);db=true;return true}catch(e){$('msg').textContent='Could not connect.';return false}}
+async function create(){if(!await conn())return;code=Math.random().toString(36).slice(2,6).toUpperCase();ref=mk('games/'+code);
+st={red:pid,blue:''};await ref.set({...st,b:fresh(),turn:'r',over:false,chain:''});watch()}
+async function join(){if(!await conn())return;code=$('code').value.trim().toUpperCase();if(!code)return;ref=mk('games/'+code);
+const s=await ref.get();if(!s.exists){$('msg').textContent='No game with that code.';return}
+const d=s.data();if(d.red!==pid&&!d.blue){await ref.update({blue:pid})}watch()}
+function watch(){$('lobby').style.display='none';$('game').style.display='block';sel=null;
+unsub=ref.onSnapshot(s=>{if(!s.exists)return;const d=s.data();st={red:d.red,blue:d.blue};
+me=d.red===pid?'r':d.blue===pid?'b':null;load(d);if(chain&&me===turn)sel=chain;draw(d)})}
+async function rematch(){if(!me)return;await ref.set({...st,b:fresh(),turn:'r',over:false,chain:''})}
+function caps(r,c){const p=B[r][c],k=p!==p.toLowerCase(),me=p.toLowerCase(),o=[];
+for(const[dr,dc]of D){let i=1;if(!k){const a=r+dr,b=c+dc,x=r+2*dr,y=c+2*dc;
+if(ok(x,y)&&B[a][b]&&B[a][b].toLowerCase()!==me&&!B[x][y])o.push({r:x,c:y,cr:a,cc:b});continue}
+while(ok(r+i*dr,c+i*dc)&&!B[r+i*dr][c+i*dc])i++;
+const er=r+i*dr,ec=c+i*dc;
+if(ok(er,ec)&&B[er][ec].toLowerCase()!==me){let j=i+1;
+while(ok(r+j*dr,c+j*dc)&&!B[r+j*dr][c+j*dc]){o.push({r:r+j*dr,c:c+j*dc,cr:er,cc:ec});j++}}}
+return o}
+function steps(r,c){const p=B[r][c],k=p!==p.toLowerCase(),f=p==='r'?-1:1,o=[];
+for(const[dr,dc]of D){if(!k){if(dr===f&&ok(r+dr,c+dc)&&!B[r+dr][c+dc])o.push({r:r+dr,c:c+dc})}
+else{let i=1;while(ok(r+i*dr,c+i*dc)&&!B[r+i*dr][c+i*dc]){o.push({r:r+i*dr,c:c+i*dc});i++}}}
+return o}
+function legal(r,c){if(chain)return(chain.r===r&&chain.c===c)?caps(r,c):[];
+const p=B[r][c];if(!p||p.toLowerCase()!==turn)return[];
+let any=false;for(let y=0;y<8&&!any;y++)for(let x=0;x<8;x++)
+if(B[y][x]&&B[y][x].toLowerCase()===turn&&caps(y,x).length){any=true;break}
+return any?caps(r,c):steps(r,c)}
+function hasMove(t){for(let y=0;y<8;y++)for(let x=0;x<8;x++)
+if(B[y][x]&&B[y][x].toLowerCase()===t&&(caps(y,x).length||steps(y,x).length))return true;return false}
+async function tap(r,c){if(over||me!==turn||!st.blue)return;
+const m=sel&&legal(sel.r,sel.c).find(m=>m.r===r&&m.c===c);
+if(m){const p=B[sel.r][sel.c];B[sel.r][sel.c]=null;B[r][c]=p;
+if(m.cr!==undefined){B[m.cr][m.cc]=null;
+if(caps(r,c).length){chain={r,c};sel={r,c};draw();return ref.set(pack())}}
+if((p==='r'&&r===0)||(p==='b'&&r===7))B[r][c]=p.toUpperCase();
+chain=null;sel=null;turn=turn==='r'?'b':'r';
+if(!hasMove(turn))over=true;draw();return ref.set(pack())}
+if(!chain)sel=legal(r,c).length?{r,c}:null;draw()}
+function draw(){const bd=$('bd');bd.innerHTML='';
+const t=sel&&me===turn?legal(sel.r,sel.c):[],fl=me==='b';
+for(let i=0;i<8;i++)for(let j=0;j<8;j++){const r=fl?7-i:i,c=fl?7-j:j,s=document.createElement('div');
+s.className='s '+((r+c)%2?'d':'l');
+if(sel&&sel.r===r&&sel.c===c)s.classList.add('sel');
+if(t.some(m=>m.r===r&&m.c===c))s.classList.add('t');
+const p=B[r][c];if(p){const d=document.createElement('div');
+d.className='p '+p.toLowerCase();d.textContent=p!==p.toLowerCase()?'♛':'';s.appendChild(d)}
+s.onclick=()=>tap(r,c);bd.appendChild(s)}
+const n=k=>B.flat().filter(x=>x&&x.toLowerCase()===k).length,nm=x=>x==='r'?'Red':'Blue';
+$('info').textContent=`Game code: ${code} · You are ${me?nm(me):'watching'}`;
+$('st').textContent=!st.blue?`Waiting for your friend… share code ${code}`:over?`${nm(turn==='r'?'b':'r')} wins! 🎉`:
+`${me===turn?'Your turn':nm(turn)+"'s turn"}${chain&&me===turn?' (keep capturing!)':''}  ·  Red ${n('r')} – Blue ${n('b')}`}
+</script></body></html>
